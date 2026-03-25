@@ -2,6 +2,8 @@
 
 A lightweight, terminal-based system monitor for Windows. Single executable, zero configuration.
 
+**[Download latest release](https://github.com/OmarAtieh/local-monitor/releases/latest)**
+
 ![LocalMonitor Screenshot](docs/images/screenshot.png)
 
 ## Features
