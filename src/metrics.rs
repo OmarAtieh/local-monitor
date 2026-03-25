@@ -48,6 +48,7 @@ pub enum Granularity {
 }
 
 impl Granularity {
+    #[allow(dead_code)]
     pub const ALL: &[Granularity] = &[
         Self::M1,
         Self::M5,
@@ -142,6 +143,7 @@ impl Granularity {
 /// Stored historical data point for graphing.
 #[derive(Debug, Clone, Default)]
 pub struct DataPoint {
+    #[allow(dead_code)]
     pub ts: i64,
     pub cpu_percent: f64,
     pub cpu_temp: Option<f64>,
