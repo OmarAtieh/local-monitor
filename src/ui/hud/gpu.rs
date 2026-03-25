@@ -1,6 +1,7 @@
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::Rect;
 use ratatui::style::Style;
-use ratatui::widgets::{Block, Borders, Gauge, Paragraph};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::metrics::Sample;
@@ -10,80 +11,132 @@ fn bytes_to_gb(bytes: u64) -> f64 {
     bytes as f64 / (1024.0 * 1024.0 * 1024.0)
 }
 
-pub fn render_gpu(f: &mut Frame, area: Rect, sample: &Sample) {
-    let block = Block::default()
-        .title(" GPU ")
-        .title_style(Style::default().fg(theme::TITLE_COLOR))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER_COLOR));
+fn build_bar_spans(pct: f64, bar_width: usize) -> Vec<Span<'static>> {
+    let filled = ((pct / 100.0) * bar_width as f64).round() as usize;
+    let unfilled = bar_width.saturating_sub(filled);
+    let color = theme::utilization_color(pct);
 
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    vec![
+        Span::styled("\u{2588}".repeat(filled), Style::default().fg(color)),
+        Span::styled(
+            "\u{2588}".repeat(unfilled),
+            Style::default().fg(theme::BAR_EMPTY),
+        ),
+    ]
+}
+
+/// Render GPU info into the left half of a paired row.
+pub fn render_gpu(f: &mut Frame, area: Rect, sample: &Sample) {
+    if area.height == 0 || area.width < 10 {
+        return;
+    }
+
+    let inner_w = area.width as usize;
+    let label = "GPU ";
 
     match sample.gpu_percent {
-        Some(pct) => {
-            let pct = pct.clamp(0.0, 100.0);
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(1)])
-                .split(inner);
+        Some(pct_raw) => {
+            let pct = pct_raw.clamp(0.0, 100.0);
+            let pct_str = format!("{:>3.0}%", pct);
 
-            let mut parts = vec![format!("{pct:.0}%")];
+            let mut details = Vec::new();
             if let Some(temp) = sample.gpu_temp {
-                parts.push(format!("{temp:.0}\u{00b0}C"));
+                details.push(format!("{temp:.0}\u{00b0}C"));
             }
             if let Some(fan) = sample.gpu_fan_percent {
-                parts.push(format!("Fan {fan}%"));
+                details.push(format!("{fan}%"));
             }
             if let Some(clock) = sample.gpu_clock_mhz {
-                parts.push(format!("{clock} MHz"));
+                details.push(format!("{clock}M"));
             }
-            let label = parts.join("  ");
+            let detail_str = details.join(" ");
 
-            let gauge = Gauge::default()
-                .gauge_style(Style::default().fg(theme::utilization_color(pct)))
-                .ratio(pct / 100.0)
-                .label(label);
-            f.render_widget(gauge, chunks[0]);
+            let fixed = label.len()
+                + 1
+                + pct_str.len()
+                + if detail_str.is_empty() {
+                    0
+                } else {
+                    1 + detail_str.len()
+                };
+            let bar_width = inner_w.saturating_sub(fixed).max(2);
+
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            spans.push(Span::styled(
+                label.to_string(),
+                Style::default().fg(theme::LABEL_GPU),
+            ));
+            spans.extend(build_bar_spans(pct, bar_width));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                pct_str,
+                Style::default().fg(theme::utilization_color(pct)),
+            ));
+            if !detail_str.is_empty() {
+                spans.push(Span::raw(" "));
+                spans.push(Span::styled(
+                    detail_str,
+                    Style::default().fg(theme::DETAIL_COLOR),
+                ));
+            }
+
+            f.render_widget(Paragraph::new(Line::from(spans)), area);
         }
         None => {
-            let paragraph = Paragraph::new("N/A").style(Style::default().fg(theme::LABEL_COLOR));
-            f.render_widget(paragraph, inner);
+            let line = Line::from(vec![
+                Span::styled(label.to_string(), Style::default().fg(theme::LABEL_GPU)),
+                Span::styled("N/A", Style::default().fg(theme::DETAIL_COLOR)),
+            ]);
+            f.render_widget(Paragraph::new(line), area);
         }
     }
 }
 
+/// Render VRM (VRAM) info into the right half of a paired row.
 pub fn render_vram(f: &mut Frame, area: Rect, sample: &Sample) {
-    let block = Block::default()
-        .title(" VRAM ")
-        .title_style(Style::default().fg(theme::TITLE_COLOR))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER_COLOR));
+    if area.height == 0 || area.width < 10 {
+        return;
+    }
 
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    let inner_w = area.width as usize;
+    let label = "VRM ";
 
     match sample.vram_percent {
-        Some(pct) => {
-            let pct = pct.clamp(0.0, 100.0);
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(1)])
-                .split(inner);
-
+        Some(pct_raw) => {
+            let pct = pct_raw.clamp(0.0, 100.0);
+            let pct_str = format!("{:>3.0}%", pct);
             let used_gb = sample.vram_used_bytes.map(bytes_to_gb).unwrap_or(0.0);
             let total_gb = sample.vram_total_bytes.map(bytes_to_gb).unwrap_or(0.0);
-            let label = format!("{pct:.0}%  {used_gb:.1}/{total_gb:.1} GB");
+            let detail_str = format!("{used_gb:.1}/{total_gb:.1} GB");
 
-            let gauge = Gauge::default()
-                .gauge_style(Style::default().fg(theme::utilization_color(pct)))
-                .ratio(pct / 100.0)
-                .label(label);
-            f.render_widget(gauge, chunks[0]);
+            let fixed = label.len() + 1 + pct_str.len() + 1 + detail_str.len();
+            let bar_width = inner_w.saturating_sub(fixed).max(2);
+
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            spans.push(Span::styled(
+                label.to_string(),
+                Style::default().fg(theme::LABEL_GPU),
+            ));
+            spans.extend(build_bar_spans(pct, bar_width));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                pct_str,
+                Style::default().fg(theme::utilization_color(pct)),
+            ));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                detail_str,
+                Style::default().fg(theme::DETAIL_COLOR),
+            ));
+
+            f.render_widget(Paragraph::new(Line::from(spans)), area);
         }
         None => {
-            let paragraph = Paragraph::new("N/A").style(Style::default().fg(theme::LABEL_COLOR));
-            f.render_widget(paragraph, inner);
+            let line = Line::from(vec![
+                Span::styled(label.to_string(), Style::default().fg(theme::LABEL_GPU)),
+                Span::styled("N/A", Style::default().fg(theme::DETAIL_COLOR)),
+            ]);
+            f.render_widget(Paragraph::new(line), area);
         }
     }
 }

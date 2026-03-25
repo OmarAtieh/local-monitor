@@ -1,6 +1,7 @@
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::Rect;
 use ratatui::style::Style;
-use ratatui::widgets::{Block, Borders, Gauge};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::metrics::Sample;
@@ -10,40 +11,90 @@ fn bytes_to_gb(bytes: u64) -> f64 {
     bytes as f64 / (1024.0 * 1024.0 * 1024.0)
 }
 
-pub fn render(f: &mut Frame, area: Rect, sample: &Sample) {
-    let block = Block::default()
-        .title(" RAM ")
-        .title_style(Style::default().fg(theme::TITLE_COLOR))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER_COLOR));
+fn build_bar_spans(pct: f64, bar_width: usize) -> Vec<Span<'static>> {
+    let filled = ((pct / 100.0) * bar_width as f64).round() as usize;
+    let unfilled = bar_width.saturating_sub(filled);
+    let color = theme::utilization_color(pct);
 
-    let inner = block.inner(area);
-    f.render_widget(block, area);
+    vec![
+        Span::styled("\u{2588}".repeat(filled), Style::default().fg(color)),
+        Span::styled(
+            "\u{2588}".repeat(unfilled),
+            Style::default().fg(theme::BAR_EMPTY),
+        ),
+    ]
+}
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1)])
-        .split(inner);
+/// Render RAM info into the left half of a paired row.
+pub fn render_ram(f: &mut Frame, area: Rect, sample: &Sample) {
+    if area.height == 0 || area.width < 10 {
+        return;
+    }
 
-    // RAM gauge
+    let inner_w = area.width as usize;
+    let label = "RAM ";
     let pct = sample.ram_percent.clamp(0.0, 100.0);
+    let pct_str = format!("{:>3.0}%", pct);
     let used_gb = bytes_to_gb(sample.ram_used_bytes);
     let total_gb = bytes_to_gb(sample.ram_total_bytes);
-    let label = format!("{pct:.0}%  {used_gb:.1}/{total_gb:.1} GB");
-    let gauge = Gauge::default()
-        .gauge_style(Style::default().fg(theme::utilization_color(pct)))
-        .ratio(pct / 100.0)
-        .label(label);
-    f.render_widget(gauge, chunks[0]);
+    let detail_str = format!("{used_gb:.1}/{total_gb:.1} GB");
 
-    // Swap gauge
-    let swap_pct = sample.swap_percent.clamp(0.0, 100.0);
-    let swap_used_gb = bytes_to_gb(sample.swap_used_bytes);
-    let swap_total_gb = bytes_to_gb(sample.swap_total_bytes);
-    let swap_label = format!("Swap {swap_pct:.0}%  {swap_used_gb:.1}/{swap_total_gb:.1} GB");
-    let swap_gauge = Gauge::default()
-        .gauge_style(Style::default().fg(theme::utilization_color(swap_pct)))
-        .ratio(swap_pct / 100.0)
-        .label(swap_label);
-    f.render_widget(swap_gauge, chunks[1]);
+    let fixed = label.len() + 1 + pct_str.len() + 1 + detail_str.len();
+    let bar_width = inner_w.saturating_sub(fixed).max(2);
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    spans.push(Span::styled(
+        label.to_string(),
+        Style::default().fg(theme::LABEL_RAM),
+    ));
+    spans.extend(build_bar_spans(pct, bar_width));
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        pct_str,
+        Style::default().fg(theme::utilization_color(pct)),
+    ));
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        detail_str,
+        Style::default().fg(theme::DETAIL_COLOR),
+    ));
+
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// Render Swap info into the right half of a paired row.
+pub fn render_swap(f: &mut Frame, area: Rect, sample: &Sample) {
+    if area.height == 0 || area.width < 10 {
+        return;
+    }
+
+    let inner_w = area.width as usize;
+    let label = "SWP ";
+    let pct = sample.swap_percent.clamp(0.0, 100.0);
+    let pct_str = format!("{:>3.0}%", pct);
+    let used_gb = bytes_to_gb(sample.swap_used_bytes);
+    let total_gb = bytes_to_gb(sample.swap_total_bytes);
+    let detail_str = format!("{used_gb:.1}/{total_gb:.1} GB");
+
+    let fixed = label.len() + 1 + pct_str.len() + 1 + detail_str.len();
+    let bar_width = inner_w.saturating_sub(fixed).max(2);
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    spans.push(Span::styled(
+        label.to_string(),
+        Style::default().fg(theme::LABEL_RAM),
+    ));
+    spans.extend(build_bar_spans(pct, bar_width));
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        pct_str,
+        Style::default().fg(theme::utilization_color(pct)),
+    ));
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled(
+        detail_str,
+        Style::default().fg(theme::DETAIL_COLOR),
+    ));
+
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
 }

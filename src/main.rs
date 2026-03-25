@@ -122,11 +122,13 @@ fn main() -> Result<()> {
             }
 
             // Split main area into HUD (top) and graphs (bottom).
+            let hud_h =
+                ui::hud::hud_height(app.latest_sample.per_core_percent.len(), main_area.width);
             let layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(12), // HUD: 3+3+3+3
-                    Constraint::Min(6),     // Graphs
+                    Constraint::Length(hud_h),
+                    Constraint::Min(6), // Graphs
                 ])
                 .split(main_area);
 
