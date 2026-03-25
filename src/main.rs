@@ -1,3 +1,5 @@
+mod collectors;
+mod db;
 mod metrics;
 
 fn main() {
