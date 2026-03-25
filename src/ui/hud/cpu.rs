@@ -8,9 +8,11 @@ use crate::metrics::Sample;
 use crate::ui::theme;
 
 const BLOCK_CHARS: &[char] = &[
-    '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}', '\u{2588}',
+    '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}',
+    '\u{2588}',
 ];
-const LABEL_WIDTH: usize = 5; // "CPU " + space after bar info
+const LABEL_WIDTH: usize = 5; // indent for wrapped rows
+const FIXED_OVERHEAD: usize = 24; // "CPU " + bar spacing + pct + freq (approx)
 
 fn heatmap_char(pct: f64) -> char {
     let idx = ((pct.clamp(0.0, 100.0) / 100.0) * 7.0).round() as usize;
@@ -31,37 +33,54 @@ fn build_bar_spans(pct: f64, bar_width: usize) -> Vec<Span<'static>> {
     ]
 }
 
-/// Calculate how many cores fit inline on the CPU row after label + bar + pct + freq.
+/// How many characters to use per core so the heatmap fills ~half the row width.
+fn chars_per_core(core_count: usize, target_width: usize) -> usize {
+    if core_count == 0 {
+        return 1;
+    }
+    (target_width / core_count).max(1)
+}
+
+/// Calculate how many extra rows the heatmap needs beyond the CPU bar row.
 pub fn heatmap_extra_rows(core_count: usize, terminal_width: u16) -> u16 {
     if core_count == 0 {
         return 0;
     }
-    let inner_width = (terminal_width as usize).saturating_sub(4); // box borders + padding
-                                                                   // " CPU " (5) + bar (variable) + " XX% " (5) + " X.XX GHz  " (12) = 22 fixed chars minimum
-                                                                   // bar takes up space but cores go after the freq text
-                                                                   // Estimate: label(5) + pct(5) + freq(12) + 2 spaces = ~24 chars overhead
-                                                                   // Available for cores inline = inner_width - 24
-    let cores_per_row = inner_width.saturating_sub(LABEL_WIDTH + 19); // 19 = pct + freq + spacing
-    if cores_per_row == 0 {
-        // All cores wrap
-        let per_row = inner_width.saturating_sub(LABEL_WIDTH);
-        if per_row == 0 {
-            return 0;
-        }
-        return core_count.div_ceil(per_row) as u16;
-    }
-    if core_count <= cores_per_row {
+    let inner_width = (terminal_width as usize).saturating_sub(4);
+    let half = inner_width / 2;
+    let cpc = chars_per_core(core_count, half);
+    let total_chars = core_count * cpc;
+
+    // Inline space available after label + bar + pct + freq + 2 space separator
+    let inline_space = inner_width.saturating_sub(FIXED_OVERHEAD + 2);
+
+    if total_chars <= inline_space {
         return 0; // fits inline
     }
-    let remaining = core_count - cores_per_row;
-    let per_row = inner_width.saturating_sub(LABEL_WIDTH);
-    if per_row == 0 {
+
+    // Wraps to dedicated rows
+    let wrap_width = inner_width.saturating_sub(LABEL_WIDTH);
+    if wrap_width == 0 {
         return 0;
     }
-    remaining.div_ceil(per_row) as u16
+    total_chars.div_ceil(wrap_width) as u16
 }
 
-/// Render the CPU row content (no borders). May use multiple rows for heatmap wrapping.
+/// Build the heatmap spans for all cores, with `cpc` characters per core.
+fn build_heatmap_spans(per_core: &[f64], cpc: usize) -> Vec<Span<'static>> {
+    per_core
+        .iter()
+        .map(|&p| {
+            let ch = heatmap_char(p);
+            Span::styled(
+                String::from(ch).repeat(cpc),
+                Style::default().fg(theme::utilization_color(p)),
+            )
+        })
+        .collect()
+}
+
+/// Render the CPU row content. May use multiple rows for heatmap wrapping.
 pub fn render(f: &mut Frame, area: Rect, sample: &Sample) {
     if area.height == 0 || area.width < 20 {
         return;
@@ -71,43 +90,36 @@ pub fn render(f: &mut Frame, area: Rect, sample: &Sample) {
     let freq_ghz = sample.cpu_freq_mhz / 1000.0;
     let inner_w = area.width as usize;
 
-    // Fixed parts: "CPU " (4) + " " (1 after bar) + pct "XXX% " (5) + freq "X.XX GHz" (9)
     let label_str = "CPU ";
     let pct_str = format!("{:>3.0}%", pct);
     let freq_str = format!("{:.2} GHz", freq_ghz);
     let fixed_len = label_str.len() + 1 + pct_str.len() + 1 + freq_str.len();
 
-    // Build core heatmap spans
-    let core_spans: Vec<Span<'static>> = sample
-        .per_core_percent
-        .iter()
-        .map(|&p| {
-            let ch = heatmap_char(p);
-            Span::styled(
-                String::from(ch),
-                Style::default().fg(theme::utilization_color(p)),
-            )
-        })
-        .collect();
-
     let core_count = sample.per_core_percent.len();
-    // Space available for cores inline (after 2 spaces separator)
-    let inline_space = inner_w.saturating_sub(fixed_len + 2);
-    let cores_inline = core_count.min(inline_space);
+    let half = inner_w / 2;
+    let cpc = chars_per_core(core_count, half);
+    let total_heatmap_chars = core_count * cpc;
 
-    // Determine bar width: fill the space between label and pct
-    // Layout: "CPU " + bar + " " + pct + " " + freq + "  " + inline_cores
+    // Build heatmap spans with multi-char per core
+    let heatmap_spans = build_heatmap_spans(&sample.per_core_percent, cpc);
+
+    // Inline space available after freq + 2 char separator
+    let inline_space = inner_w.saturating_sub(fixed_len + 2);
+    let fits_inline = total_heatmap_chars <= inline_space && core_count > 0;
+
+    // Bar width: fill space between label and pct, accounting for inline heatmap if it fits
     let after_bar = 1
         + pct_str.len()
         + 1
         + freq_str.len()
-        + if cores_inline > 0 {
-            2 + cores_inline
+        + if fits_inline {
+            2 + total_heatmap_chars
         } else {
             0
         };
     let bar_width = inner_w.saturating_sub(label_str.len() + after_bar).max(4);
 
+    // Build the main CPU row
     let mut spans: Vec<Span<'static>> = Vec::new();
     spans.push(Span::styled(
         label_str.to_string(),
@@ -125,27 +137,30 @@ pub fn render(f: &mut Frame, area: Rect, sample: &Sample) {
         Style::default().fg(theme::DETAIL_COLOR),
     ));
 
-    // Inline cores
-    if cores_inline > 0 {
+    // Inline heatmap
+    if fits_inline {
         spans.push(Span::raw("  "));
-        for s in core_spans.iter().take(cores_inline) {
+        for s in &heatmap_spans {
             spans.push(s.clone());
         }
     }
 
-    let line = Line::from(spans);
     let row_rect = Rect::new(area.x, area.y, area.width, 1);
-    f.render_widget(Paragraph::new(line), row_rect);
+    f.render_widget(Paragraph::new(Line::from(spans)), row_rect);
 
-    // Wrap remaining cores to additional rows
-    if cores_inline < core_count && area.height > 1 {
-        let remaining = &core_spans[cores_inline..];
+    // Wrap heatmap to additional rows if it didn't fit inline
+    if !fits_inline && core_count > 0 && area.height > 1 {
         let wrap_width = inner_w.saturating_sub(LABEL_WIDTH);
         if wrap_width == 0 {
             return;
         }
+        // How many cores fit per wrapped row (in chars)
+        let cores_per_row = wrap_width / cpc;
+        if cores_per_row == 0 {
+            return;
+        }
         let indent = " ".repeat(LABEL_WIDTH);
-        for (row_idx, chunk) in remaining.chunks(wrap_width).enumerate() {
+        for (row_idx, chunk) in heatmap_spans.chunks(cores_per_row).enumerate() {
             let y = area.y + 1 + row_idx as u16;
             if y >= area.y + area.height {
                 break;
