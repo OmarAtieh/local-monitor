@@ -1,0 +1,20 @@
+[package]
+name = "localmonitor"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight terminal-based system monitor"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sysinfo = "0.33"
+nvml-wrapper = "0.10"
+dirs = "6"
+chrono = "0.4"
+anyhow = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
