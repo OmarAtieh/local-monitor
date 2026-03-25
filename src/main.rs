@@ -8,7 +8,7 @@ use std::io;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -125,7 +125,7 @@ fn main() -> Result<()> {
             let layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Length(11), // HUD: 3+3+3+2
+                    Constraint::Length(12), // HUD: 3+3+3+3
                     Constraint::Min(6),     // Graphs
                 ])
                 .split(main_area);
@@ -140,7 +140,10 @@ fn main() -> Result<()> {
 
         if event::poll(timeout)? {
             if let Event::Key(KeyEvent {
-                code, modifiers, ..
+                code,
+                modifiers,
+                kind: KeyEventKind::Press,
+                ..
             }) = event::read()?
             {
                 match (code, modifiers) {

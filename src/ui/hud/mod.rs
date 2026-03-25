@@ -17,7 +17,7 @@ pub fn render_hud(f: &mut Frame, area: Rect, sample: &Sample) {
             Constraint::Length(3), // system header
             Constraint::Length(3), // CPU | GPU
             Constraint::Length(3), // RAM | VRAM
-            Constraint::Length(2), // Disk | Network
+            Constraint::Length(3), // Disk | Network
         ])
         .split(area);
 
