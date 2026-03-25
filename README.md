@@ -76,3 +76,7 @@ Binary: `target/release/localmonitor.exe` (~1.9 MB)
 ## Tech Stack
 
 Rust, [Ratatui](https://ratatui.rs/), [Crossterm](https://github.com/crossterm-rs/crossterm), [SQLite](https://www.sqlite.org/) (via rusqlite), [sysinfo](https://github.com/GuillaumeGomez/sysinfo), [nvml-wrapper](https://github.com/Cldfire/nvml-wrapper)
+
+## Author
+
+[Omar Atieh](https://github.com/OmarAtieh)
