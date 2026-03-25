@@ -79,4 +79,4 @@ Rust, [Ratatui](https://ratatui.rs/), [Crossterm](https://github.com/crossterm-r
 
 ## Author
 
-[Omar Atieh](https://github.com/OmarAtieh)
+[Omar Atieh](https://github.com/OmarAtieh) — [LinkedIn](https://www.linkedin.com/in/omaratieh/)
